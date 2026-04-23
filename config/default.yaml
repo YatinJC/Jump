@@ -1,0 +1,162 @@
+ball:
+  radius: 0.0539 # meters
+  mass: 0.250 # kg
+  center_of_mass: [0.0, 0.0, 0.03] # offset from geometric center, body frame (m)
+  moment_of_inertia:
+    # Thin spherical shell about geometric center: I0 = 2/3 * m * r^2 = 0.000486 kg·m²
+    # Realistic for a hollow ball with internal components (batteries, thrusters).
+    # COM offset d = [0, 0, 0.03] m shifts x/y axes via parallel axis theorem:
+    #   Ixx = Iyy = I0 + m*dz^2 = 0.000486 + 0.250*0.0009 = 0.000711 kg·m²
+    #   Izz       = I0           = 0.000486 kg·m²  (z-offset doesn't affect z-axis)
+    # Off-diagonals are zero: offset is along body z, a symmetry axis of the sphere.
+    diagonal: [0.000711, 0.000711, 0.000486] # [Ixx, Iyy, Izz] kg*m^2
+
+initial_conditions:
+  position: [0.0, 0.0, 1.0] # COM position, world frame (m); ball starts from rest
+  quaternion: [1.0, 0.0, 0.0, 0.0] # [w,x,y,z] body-to-world
+
+# Throw phase: external force and torque applied from t=0 to t=duration.
+# Both directions are specified in world frame and normalised internally.
+# After duration the ball is in free flight (gravity + drag + magnus only).
+throw_phase:
+  duration: 0.1
+  final_speed: 7          # m/s
+  direction: [0.5, 0.0, 1.0]  # world frame, normalized automatically
+  spin_rate: 4.0           # rad/s
+  spin_axis: [1.0, 1.0, 1.0]  # world frame, normalized automatically
+  force:
+    profile: gaussian
+  torque:
+    profile: gaussian
+
+physics:
+  gravity: 9.81 # m/s^2
+  air_density: 1.225 # kg/m^3
+  drag:
+    enabled: false
+    coefficient: 0.47 # Cd for a sphere
+  magnus:
+    enabled: false
+    lift_coefficient: 0.2 # dimensionless; F = Cl * rho * pi * r^3 * (omega_world x v)
+  rotational_drag:
+    enabled: false
+    coefficient: 0.0002 # N*m*s/rad; tau = -k * omega
+
+environment:
+  wall:
+    center: [3.0, 0.0, 1.5]
+    normal: [-1.0, 0.0, 0.0] # points toward the ball (away from wall surface)
+    width: 10.0 # meters (z-extent for this wall: center_z ± 5.0 → z ∈ [-3.5, 6.5])
+    height: 5.0 # meters (y-extent)
+
+sensors:
+  imu:
+    position: [0.01, 0.0, 0.0] # from geometric center, body frame (m)
+    accelerometer_noise_std: 0.05 # m/s^2
+    gyroscope_noise_std: 0.005 # rad/s
+    accelerometer_bias: [0.0, 0.0, 0.0]
+    gyroscope_bias: [0.0, 0.0, 0.0]
+    sample_rate: 8000 # Hz (must divide evenly into simulation rate)
+    noise_enabled: false
+
+  distance_sensors:
+    noise_std: 0.01 # meters
+    max_range: 10.0 # meters
+    sample_rate: 1000 # Hz (must divide evenly into simulation rate)
+    noise_enabled: false
+    positions: # from geometric center, body frame (m); direction is outward radial
+      - [0.0535, 0.0, 0.0] # +x face
+      - [-0.0535, 0.0, 0.0] # -x face
+      - [0.0, 0.0535, 0.0] # +y face
+      - [0.0, -0.0535, 0.0] # -y face
+      - [0.0, 0.0, 0.0535] # +z face
+      - [0.0, 0.0, -0.0535] # -z face
+
+# Each thruster: position from geometric center (body frame), spins like a propeller.
+# direction: unit vector (body frame) along which thrust is applied. Must be a unit
+#   vector; the model normalises it internally. If omitted, defaults to radially
+#   inward (-pos_hat).
+# Reaction torque: k_q * force * spin_direction * (-direction) (opposite to thrust axis).
+# spin_direction: +1 or -1 (sets sign of reaction torque relative to thrust axis)
+thrusters:
+  #
+  # Motor: 1106 6000KV, Prop: 2036 (2" diameter, 3.6" pitch), Battery: 3S
+  #
+  #
+  # Vectoring: single-axis gimbal that deflects thrust ±max_deflection degrees.
+  #   gimbal_axis: 'tangential' (⊥ thrust & radial), 'radial', or [x,y,z]
+  #   pair_index + pair_mode: 'opposite' links two thrusters so δ_j = -δ_i
+
+  - position: [0.0195, 0.0195, 0.0] # T0 +x+y
+    direction: [0, 0, 1]
+    spin_direction: 1
+    min_force: -0.785
+    max_force: 1.57
+    time_constant: 0.003 # seconds (DShot + 1106 6000kv motor lag)
+    torque_to_thrust_ratio: 0.0081 # m (k_q; |tau| = k_q * |force|)
+    vectoring:
+      enabled: true
+      max_deflection: 20 # degrees
+      time_constant: 0.01 # seconds (servo lag)
+      gimbal_axis: radial # swing is tangential
+      pair_index: 3
+      pair_mode: same # same δ → opposite swing directions → pure τz
+
+  - position: [0.0195, -0.0195, -0.03] # T1 +x-y
+    direction: [0, 0, 1]
+    spin_direction: -1
+    min_force: -0.785
+    max_force: 1.57
+    time_constant: 0.003 # seconds (DShot + 1106 6000kv motor lag)
+    torque_to_thrust_ratio: 0.0081
+    vectoring:
+      enabled: true
+      max_deflection: 20 # degrees
+      time_constant: 0.01 # seconds (servo lag)
+      gimbal_axis: radial
+      pair_index: 2
+      pair_mode: same
+
+  - position: [-0.0195, 0.0195, -0.03] # T2 -x+y
+    direction: [0, 0, 1]
+    spin_direction: -1
+    min_force: -0.785
+    max_force: 1.57
+    time_constant: 0.003 # seconds (DShot + 1106 6000kv motor lag)
+    torque_to_thrust_ratio: 0.0081
+    vectoring:
+      enabled: true
+      max_deflection: 20 # degrees
+      time_constant: 0.01 # seconds (servo lag)
+      gimbal_axis: radial
+      pair_index: 1
+      pair_mode: same
+
+  - position: [-0.0195, -0.0195, 0.0] # T3 -x-y
+    direction: [0, 0, 1]
+    spin_direction: 1
+    min_force: -0.785
+    max_force: 1.57
+    time_constant: 0.003 # seconds (DShot + 1106 6000kv motor lag)
+    torque_to_thrust_ratio: 0.0081
+    vectoring:
+      enabled: true
+      max_deflection: 20 # degrees
+      time_constant: 0.01 # seconds (servo lag)
+      gimbal_axis: radial
+      pair_index: 0
+      pair_mode: same
+
+simulation:
+  dt: 0.000125 # simulation timestep (s) — 8 kHz (1/8000)
+  max_time: 10.0 # maximum simulation duration (s)
+
+logging:
+  output_file: "data/sim_output_test_quadrotor_vertical.h5"
+  log_ground_truth: true
+
+visualization:
+  frame_skip: 5 # visualize every Nth simulation step in animation
+  show_sensor_rays: true
+  show_body_axes: true
+  trajectory_alpha: 0.6

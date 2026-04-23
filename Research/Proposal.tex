@@ -1,0 +1,383 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=0.85in]{geometry}
+\usepackage{times}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{parskip}
+\usepackage{multicol}
+\setlist{nosep}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue,
+  citecolor=black
+}
+
+\title{\vspace{-2em}\textbf{Jump: A Throwable Ball-Shaped Camera That Self-Orients and Sticks on Arbitrary Surfaces}\\
+\large Georgia Tech MS Robotics Capstone Proposal\vspace{-0.5em}}
+\author{Yatin Chandar \quad \textit{Advisor:} Dr.\ Frank Dellaert\vspace{-0.8em}}
+\date{April 2026}
+
+\begin{document}
+\maketitle
+
+\section{Introduction and Background}
+
+Throwable cameras have become a mainstay of first-response and
+tactical operations. Commercial products such as Bounce Imaging's
+\emph{Explorer} and ReconRobotics' \emph{Throwbot XT} place a shock-tolerant
+sensor payload inside a rubber-shelled ball that an operator hurls into an
+unknown space to stream video and audio back to a
+handset~\cite{bounce_mit,bounce_newatlas,dhs_throwable}. On the civilian side, action cameras have 
+ruggedized outer shells that can survive being thrown, but are often used as POV cameras rather than a 
+rapidly deployable third person perspective. A throwable form factor is easily deployable, and leverages the accuracy
+and power of the human throw that has evolved over hundreds of thousands of years.
+
+A complementary line of work in aerial robotics attacks the ``camera on the
+wall'' problem from the opposite direction: fly a vehicle and perch it.
+Kalantari and Mahajan~\cite{kalantari2015} fly a quadrotor into a vertical
+wall with a dry-adhesive gripper, but did not leverage the agile capabilities of quadrotors, instead choosing to use a deployable foot instead of rotating the aircraft to present a sticking surface. 
+Pope et~al.~\cite{pope2017scamp} developed
+SCAMP, which flies, perches, and climbs using microspines; Estrada, Hawkes
+and Cutkosky~\cite{estrada2014} combined gecko-inspired dry adhesives with
+passive perching dynamics; recent work has demonstrated soft electroadhesive
+pads~\cite{electroadhesive2026} and energy-efficient passive
+perching~\cite{nature2023}. These platforms deliver a stable wall-mounted
+camera view but require a piloted or programmed hovering approach with
+maneuvering room and line-of-sight. In the FPV drone community, pilots have learned how to fly their 
+drones at walls, quickly reorient, and present the bottom of the drone to the wall to apply a sticker to a previously 
+inaccessible surface at the top of a building. Making this maneuver autonomous is a natural next step.
+
+This project proposes a ball-shaped, single-lens
+camera with a sticky pad opposite the lens, thrown rather than flown, but
+carrying micro-quadrotor-class motors and thrust-vectoring hardware active only during
+the brief terminal phase. Onboard sensing reconstructs the ballistic
+trajectory, estimates the pose of the impact surface, and drives a short
+powered maneuver that (a)~despins, (b)~points the pad at the surface, and
+(c)~reduces normal and tangential impact velocity to within the adhesive's
+envelope. The operator throws the ball; the ball arrives stuck to the wall,
+lens aimed into the room.
+
+A single-lens ball is small, light, robust, and cheap compared to a
+360$^{\circ}$ camera array, and a throw to an elevated (albeit perpendicular or inverted) landing surface
+provides a better vantage point, but it forces the robot to solve a hard guidance
+problem in $\sim$500\,ms with sensing and propulsion limited to what fits inside a 10\,cm
+sphere. The problem sits at the intersection of aerial perching,
+terminal-phase guidance, inertial navigation, and factor-graph state
+estimation: four literatures that have so far been pursued largely
+independently. Solving it is both practically valuable (a cheaper, smaller
+responder tool or an instantly deployable action camera~\cite{dhs_throwable}) and academically interesting (a
+resource-constrained testbed for tightly-coupled estimation-control problems).
+
+\subsection{Related Work}
+\label{sec:related}
+
+\textbf{Throwable devices.} Bounce Imaging's Explorer and related tactical
+spheres~\cite{bounce_mit,bounce_newatlas} are the closest antecedents, but
+they are passive-they record whatever they see after bouncing and do not
+attempt to control their attitude in flight or their resting pose.
+
+\textbf{Aggressive and aerobatic quadrotor maneuvers.} The skilled FPV
+trick of flying into a wall, flipping, and pressing a sticker onto an
+inaccessible surface is the closest human analogue to what this project
+automates. Mellinger, Michael and Kumar showed aggressive trajectory
+generation and precise control including inverted
+perching~\cite{mellinger2012}; Thomas et~al.\ demonstrated aggressive
+flight to perch on inclined surfaces~\cite{thomas2016inclined}; more recent
+work covers visual perching on inclined
+surfaces~\cite{paneque2021visual}, reinforcement-learning wall
+perching~\cite{xie2021rl}, INDI flight with state
+constraints~\cite{indi2022}, and learned/MPC acrobatic and freestyle
+flight~\cite{kaufmann2020deepdrone,romero2024mpc,scirob2024freestyle}. These
+show that small rotorcraft can reach $\sim$600\,deg/s and precise perch
+orientations with onboard sensing, but all start from controlled hover or
+a cueing approach, not the terminal phase of a ballistic human throw.
+
+\textbf{Aerial perching hardware.} On the gripper side, Kalantari and
+Mahajan~\cite{kalantari2015} require $\geq 0.4$\,m/s approach and report
+$93\%$ success above that threshold; SCAMP extends this to
+perch-and-climb~\cite{pope2017scamp}; BDML~\cite{estrada2014} and
+MIT~\cite{electroadhesive2026} explore gecko-inspired and electroadhesive
+pads. All assume a controllable hovering approach; none handle a ballistic
+arrival.
+
+\textbf{Terminal-phase guidance and thrust vectoring.} A ballistic
+reorient-and-brake maneuver is closer to rocket landing than to quadrotor
+flight. Fuel-optimal powered-descent guidance (``Mars pinpoint
+landing'')~\cite{acikmese2007,szmuk2020,reusable_rockets} motivates the
+decomposition into despin, orient, and brake sub-phases used here. On the
+actuator side, thrust-vectoring multirotors such as
+MorphEUS~\cite{morpheus2025} and tilt-rotor wall-climbing
+drones~\cite{myeong2018} show that gimballing each rotor decouples attitude
+from thrust direction, which is essential for a ball with a single thrust
+axis.
+
+\textbf{Inertial and range-based state estimation.} Factor-graph
+smoothing~\cite{dellaert2017,kaess2012isam2} is the standard tool for
+tightly-coupled sensor fusion, with IMU
+preintegration~\cite{forster2017imu} providing efficient inclusion of
+high-rate inertial data. Indelman et al.~\cite{indelman2012} show that
+incremental smoothing outperforms filtering for UAV inertial navigation.
+Short-duration projectile trajectories are tractable with IMU-only dead
+reckoning augmented by ballistic priors and learned
+residuals~\cite{brossard2019ai,lstm_projectile}. Sparse ToF+IMU fusion has
+been applied to pedestrian and ranging-based indoor
+localization~\cite{tof_pedestrian,robust_ranging_imu}, but not to surface estimation from a spinning ball in $\sim$300\,ms
+of free flight.
+
+\section{Proposed Contribution}
+
+The project will design, simulate, and prototype a ball-shaped camera
+that, when thrown at a surface, autonomously orients itself so that a
+sticky pad on the side opposite the lens contacts the surface at a safe,
+near-normal impact. The contribution has three intertwined components:
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{A terminal-guidance controller} for a thrust-vectored ball
+  that, in $\sim$500\,ms, despins, orients, and brakes to a commanded
+  terminal state on an arbitrarily-oriented surface. A working
+  model-based controller already exists in the current codebase
+  (\texttt{scripts/flight\_controller.py}) and lands on vertical walls at
+  $\sim$1\,m/s with $\sim$11$^{\circ}$ alignment error; the capstone will
+  refine, formally evaluate, and hardware-validate this controller.
+\item \textbf{An onboard factor-graph state estimator} that fuses IMU,
+  sparse ToF ranging, and (optionally) monocular camera features to
+  produce a joint estimate of (i)~the ball's ballistic trajectory and
+  (ii)~the pose of the target surface. The factor-graph formulation
+  allows the same framework to incorporate a ballistic-dynamics prior
+  during free flight, a thrust/torque prior during the powered phase,
+  ToF range factors constraining surface pose, and IMU preintegration
+  factors, all within GTSAM.
+\item \textbf{A hardware prototype and end-to-end demonstration.} The
+  final deliverable is a physical ball, roughly 10--12\,cm in diameter,
+  that is thrown at a wall and sticks (most of the
+  time) with its camera pointed into the room. A
+  secondary goal is a tethered test rig that decouples the estimator
+  evaluation from the mechanical reliability of the adhesive.
+\end{enumerate}
+
+\section{Expected Methods}
+
+\subsection{Stage 1: Simulation and Algorithm Development}
+
+A high-fidelity simulator is already in place (see \texttt{sim/}): 8\,kHz
+rigid-body dynamics, 4-thruster vectoring model with DShot + motor + servo
+lag, IMU and ToF sensor models with configurable noise, and HDF5 ground
+truth + sensor logging. This is a controllable laboratory for both the
+controller and the estimator and lets algorithm iteration run in parallel
+with hardware work.
+
+\emph{Controller.} The existing bang-bang~$\rightarrow$~PD terminal sequence
+can be extended with (i)~a convex-optimization re-planner along the lines
+of~\cite{acikmese2007,szmuk2020} that respects actuator saturation and
+vectoring limits, and (ii)~a sensitivity analysis over throw speed, throw
+angle, initial spin, and surface orientation. The deliverable is a
+quantitative \emph{success envelope}: given the current actuator
+configuration (1106 6000\,KV, 2036 prop, 3S battery, $\pm 20^{\circ}$
+vectoring), from which initial conditions is a successful landing
+achievable?
+
+\emph{Estimator.} A GTSAM factor graph will be built whose variables are the
+ball's 15-dimensional inertial navigation state (pose, velocity, IMU biases)
+at keyframes $\sim$20\,ms apart, plus the pose of the unknown target surface
+(a plane, 3--4 DoF). The factors are:
+(a)~IMU preintegration between keyframes~\cite{forster2017imu};
+(b)~thrust/torque factors during the powered phase derived from commanded
+actuator state and the thruster model;
+(c)~ToF range factors relating each ray to the surface plane;
+(d)~optional monocular feature-bearing factors from the camera for drift
+correction.
+The graph will be solved incrementally with iSAM2~\cite{kaess2012isam2} for
+real-time closed-loop use. The expected benefit over the existing
+filter-style estimator (\texttt{scripts/estimator.py}) is retrospective
+correction: once enough ToF rays have intersected a consistent plane, the
+earlier trajectory can be relinearized against it, sharpening both surface
+pose and ball state.
+
+\subsection{Stage 2: Rough Prototype}
+
+A non-flying bench rig will mount the 4-thruster vectored stack inside a
+10-12\,cm shell with an IMU, ~6 ToF sensors, an STM32H7-class flight controller, and a 1-3S LiPo.
+Swung from a cable, it will log sensors and estimate state. The sticky pad, flight PCB, and shock-tolerant
+enclosure will be prototyped at this stage.
+
+\subsection{Stage 3: Testing of the Rough Prototype}
+
+The rough prototype will (a)~characterize real-actuator bandwidth;
+(b)~characterize IMU and ToF noise/drift on actual hardware; and
+(c)~validate the estimator against motion-capture on hand-motion and drop tests.
+
+\subsection{Stage 4: Functional System and Closed-Loop Throws}
+
+With actuators and estimator validated, the closed-loop system will be
+thrown in a netted test space in three increasingly demanding matrices:
+(a)~vertical-wall throws at $\sim$3\,m, fixed pose; (b)~oblique walls of
+varying orientation; (c)~tumbling throws with non-negligible spin.
+Success metrics: stick rate; normal and tangential impact speed;
+alignment angle at impact; estimator error vs.\ MoCap for position,
+velocity, orientation, and surface pose.
+
+
+\section{Expected Resources}
+
+\textbf{Hardware.} Sourced from the open microquadrotor (``whoop'') ecosystem
+and standard electronics suppliers. Estimated cost:
+\begin{itemize}[leftmargin=*]
+\item Thrusters: 4$\times$ 1106-class brushless motors, 2'' props,
+  micro-ESC~(\$100)
+\item Servos: 4$\times$ linear-actuator or sub-micro servos for thrust
+  vectoring~(\$60)
+\item Flight controller (low-level): STM32H743 or Teensy 4.1~(\$50)
+\item Companion compute (estimator + high-level control): see below~(\$50--\$150)
+\item IMU: ICM-42688-P or BMI270 dev board~(\$15)
+\item ToF: 4--6 VL53L5CX multizone ToF modules~(\$80)
+\item Camera: Raspberry Pi HQ camera or OpenMV Cam H7~(\$80)
+\item Battery: 1S--3S 350--650\,mAh LiPo~(\$30)
+\item Structural: 3D-printed SLA/MJF shell, gecko
+  adhesive patch or 3M VHB~(\$100)
+\item Dev \& spares budget~(\$200)
+\end{itemize}
+Total estimated hardware budget: \textbf{\$750--\$850}. Hardware will be most likely self funded.
+
+\textbf{Compute.} A softball-sized package constrains compute by mass,
+volume, and power more than by cost, and the estimator must run faster
+than the $\sim$500\,ms terminal window. The architecture is split in two.
+A low-level flight controller (STM32H743, 400\,MHz Cortex-M7) runs the
+$\geq$2\,kHz inner attitude loop, IMU preintegration, ToF decoding, and
+actuator mixing-the same MCU class used by Betaflight/PX4, with FPU
+headroom for the preintegration math~\cite{forster2017imu}. A companion
+computer runs GTSAM and optional vision. Candidates in order of
+increasing capability/mass: (i)~Teensy 4.1 or ESP32-S3 ($\sim$1--2\,g)
+with a sliding-window graph~\cite{indelman2012} and throttled iSAM2
+relinearization~\cite{kaess2012isam2}; (ii)~Kendryte K230 or Ambiq
+Apollo5 ($\sim$2--3\,g, built-in NPU) for IMU-residual
+nets~\cite{brossard2019ai}; (iii)~Raspberry Pi Zero 2\,W or Radxa Zero
+($\sim$10\,g) running Linux and stock GTSAM. A Stage-1 milestone is to
+benchmark solve time on each candidate in simulation; prior MAV results
+show iSAM2 update rates of tens of Hz on Pi-class
+hardware~\cite{indelman2012}, covering the $\sim$50\,Hz keyframe rate
+with margin. Compute + sensors power budget is $<$3\,W, negligible next
+to $\sim$100\,W peak thruster draw.
+
+\textbf{Software and data.} The existing Python simulator, GTSAM (BSD
+license), NumPy/SciPy, Matplotlib for plots, and PyTorch if learned
+residuals prove necessary for IMU bias or dynamics mismatch. All datasets
+(simulator logs, motion-capture drop tests) will be generated in-house;
+no external dataset is required. If possible, elements of the control system will be converted to Rust for speed.
+
+\textbf{Facilities.} Indoor netted test area with motion capture (for
+ground-truth validation).
+
+\section{Schedule}
+
+Approximate milestones for an Aug 2026--Apr 2027 capstone (adjust with advisor).
+
+\begin{center}
+\begin{tabular}{|p{0.22\textwidth}|p{0.72\textwidth}|}
+\hline
+\textbf{Month} & \textbf{Milestone} \\ \hline
+Aug 2026      & Literature review; finalize factor-graph formulation with advisor; order long-lead hardware \\ \hline
+Sep 2026      & Estimator v1 in simulator; baseline controller re-characterization; compute-candidate benchmarking \\ \hline
+Oct 2026      & Rough prototype: bench rig assembled, sensors wired, open-loop thrust profiles logged \\ \hline
+Nov 2026      & \textbf{Mid-point presentation}; hardware-in-the-loop estimator tests; IMU/ToF calibration \\ \hline
+Dec 2026      & MoCap validation on hand-motion and drop tests; first closed-loop rig control \\ \hline
+Jan--Feb 2027 & Functional system: closed-loop throws in netted space (vertical then oblique walls, tumbling throws) \\ \hline
+Mar 2027      & Ablations and final evaluation: factor-graph vs.\ filter, with/without ToF, success envelope \\ \hline
+Apr 2027      & Final report and deliverables; presentation to IRIM faculty and students \\ \hline
+\end{tabular}
+\end{center}
+
+\section*{Current State (for context)}
+
+A working model-based controller and physics-accurate simulator already
+exist in the repository. In simulation, the ball achieves wall landings
+at $\sim$0.94\,m/s with $\sim$11$^{\circ}$ orientation error after a
+$\sim$1.1\,s flight, via a decomposition into despin, yaw-align,
+tilt-despin, orient-burn, burn, and final-orient sub-phases with a
+single constant-direction burn during ballistic coast. The capstone's
+job is to put a factor-graph estimator around this controller, close
+the loop on real hardware, and produce an evaluation of when it
+works and when it does not.
+
+\section*{Future Work (Post-Capstone)}
+
+A natural extension is a return-to-thrower capability: after the
+perched observation, the ball detaches and flies itself back along a
+reversed version of the recorded inbound trajectory. The factor graph
+already contains a world-frame estimate of the release point, and the
+actuator stack is a micro-quadrotor - controllable hover flight is
+tractable given the existing estimator.
+
+\scriptsize
+\begin{multicols}{2}
+\begin{thebibliography}{99}
+\setlength\itemsep{-2pt}
+\setlength\parskip{0pt}
+
+\bibitem{bounce_mit} R.~Matheson. Alumnus's throwable tactical camera gets commercial release. \emph{MIT News}, 2015.
+
+\bibitem{bounce_newatlas} B.~Coxworth. Ball with brains and cameras designed to keep first responders safe. \emph{New Atlas}, 2012.
+
+\bibitem{dhs_throwable} U.S.\ DHS (SAVER). Throwable robots technote, 2016.
+
+\bibitem{kalantari2015} A.~Kalantari and M.~Mahajan. Autonomous perching and take-off on vertical walls for a quadrotor MAV. \emph{IEEE ICRA}, 2015.
+
+\bibitem{pope2017scamp} M.~T.~Pope et al. A multimodal robot for perching and climbing on vertical outdoor surfaces. \emph{IEEE T-RO}, 33(1):38--48, 2017.
+
+\bibitem{estrada2014} M.~A.~Estrada, E.~W.~Hawkes, D.~L.~Christensen, and M.~R.~Cutkosky. Perching and crawling: Design of a multimodal robot. \emph{IEEE ICRA}, 2014.
+
+\bibitem{electroadhesive2026} Soft electroadhesive feet for micro aerial robots perching on smooth and curved surfaces. \emph{arXiv:2604.09270}, 2026.
+
+\bibitem{nature2023} Energy efficient perching and takeoff of a miniature rotorcraft. \emph{Communications Engineering (Nature)}, 2023.
+
+\bibitem{acikmese2007} B.~A\c{c}{\i}kme\c{s}e and S.~R.~Ploen. Convex programming approach to powered descent guidance for Mars landing. \emph{JGCD}, 30(5):1353--1366, 2007.
+
+\bibitem{szmuk2020} M.~Szmuk, T.~P.~Reynolds, and B.~A\c{c}{\i}kme\c{s}e. Successive convexification for real-time 6-DoF powered descent guidance with state-triggered constraints. \emph{JGCD}, 43(8):1399--1413, 2020.
+
+\bibitem{reusable_rockets} DLR. Onboard guidance for reusable rockets: aerodynamic descent and powered landing. Tech.\ rep., 2021.
+
+\bibitem{morpheus2025} MorphEUS: Morphable omnidirectional unmanned system. \emph{arXiv:2505.18270}, 2025.
+
+\bibitem{myeong2018} W.~Myeong and H.~Myung. Development of a wall-climbing drone capable of vertical soft landing using a tilt-rotor mechanism. \emph{IEEE Access}, 6:4257--4266, 2018.
+
+\bibitem{mellinger2012} D.~Mellinger, N.~Michael, and V.~Kumar. Trajectory generation and control for precise aggressive maneuvers with quadrotors. \emph{IJRR}, 31(5):664--674, 2012.
+
+\bibitem{thomas2016inclined} J.~Thomas, G.~Loianno, K.~Sreenath, and V.~Kumar. Aggressive flight with quadrotors for perching on inclined surfaces. \emph{ASME JMR}, 8(5):051007, 2016.
+
+\bibitem{paneque2021visual} J.~Paneque, J.~R.~Mart\'inez-de~Dios, and A.~Ollero. Aggressive visual perching with quadrotors on inclined surfaces. \emph{arXiv:2107.11171}, 2021.
+
+\bibitem{xie2021rl} J.~Xie et al. Reinforcement learning trajectory generation and control for aggressive perching on vertical walls with quadrotors. \emph{arXiv:2103.03011}, 2021.
+
+\bibitem{indi2022} INDI-based aggressive quadrotor flight control with position and attitude constraints. \emph{Robotics and Autonomous Systems}, 2022.
+
+\bibitem{kaufmann2020deepdrone} E.~Kaufmann et al. Deep drone acrobatics. \emph{RSS}, 2020.
+
+\bibitem{romero2024mpc} A.~Romero et al. Towards model predictive control for acrobatic quadrotor flights. \emph{arXiv:2401.17418}, 2024.
+
+\bibitem{scirob2024freestyle} Unlocking aerobatic potential of quadcopters: autonomous freestyle flight generation and execution. \emph{Science Robotics}, 2024.
+
+\bibitem{dellaert2017} F.~Dellaert and M.~Kaess. Factor graphs for robot perception. \emph{Found.\ Trends Robot.}, 6(1--2):1--139, 2017.
+
+\bibitem{kaess2012isam2} M.~Kaess et al. iSAM2: Incremental smoothing and mapping using the Bayes tree. \emph{IJRR}, 31(2):216--235, 2012.
+
+\bibitem{forster2017imu} C.~Forster, L.~Carlone, F.~Dellaert, and D.~Scaramuzza. On-manifold preintegration for real-time visual-inertial odometry. \emph{IEEE T-RO}, 33(1):1--21, 2017.
+
+\bibitem{indelman2012} V.~Indelman, S.~Williams, M.~Kaess, and F.~Dellaert. Factor graph based incremental smoothing in inertial navigation systems. \emph{FUSION}, 2012.
+
+\bibitem{brossard2019ai} M.~Brossard, A.~Barrau, and S.~Bonnabel. AI-IMU dead-reckoning. \emph{arXiv:1904.06064}, 2019.
+
+\bibitem{lstm_projectile} LSTM-based projectile trajectory estimation in a GNSS-denied environment. \emph{Sensors}, 23(6):3025, 2023.
+
+\bibitem{tof_pedestrian} Applying a ToF/IMU-based multi-sensor fusion architecture in pedestrian indoor navigation. \emph{Sensors}, 21(11):3615, 2021.
+
+\bibitem{robust_ranging_imu} Robust indoor localization with ranging--IMU fusion. \emph{IEEE ICRA}, 2024.
+
+\end{thebibliography}
+\end{multicols}
+
+\end{document}

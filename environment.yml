@@ -1,0 +1,11 @@
+name: jump_sim
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - numpy
+  - scipy
+  - matplotlib
+  - pyyaml
+  - h5py
