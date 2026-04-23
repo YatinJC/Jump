@@ -13,7 +13,7 @@ YAW_DESPIN (20ms) → YAW_ALIGN (147ms) → TILT_DESPIN (38ms)
   → ORI_BURN (327ms) → BURN (320ms) → FINAL_ORI (290ms)
 ```
 
-A single constant-direction burn (`dv = v_ideal − v_impact`) handles deceleration, tangential matching, and gravity during ballistic coast. See [CLAUDE.md](CLAUDE.md) for controller design notes and current landing performance.
+A single constant-direction burn (`dv = v_ideal − v_impact`) handles deceleration, tangential matching, and gravity during ballistic coast.
 
 ## Repo layout
 

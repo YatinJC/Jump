@@ -25,3 +25,6 @@ texput.log
 
 # Local config overrides
 config/local.yaml
+
+# Local notes
+CLAUDE.md
